@@ -1,0 +1,191 @@
+diff --git a/runtime/src/kmp.h b/runtime/src/kmp.h
+index 197cf54..47ff58f 100644
+--- a/runtime/src/kmp.h
++++ b/runtime/src/kmp.h
+@@ -1421,6 +1421,10 @@ extern kmp_uint64 __kmp_now_nsec();
+ /* TODO: tune for KMP_OS_AIX */
+ #define KMP_INIT_WAIT 1024U /* initial number of spin-tests   */
+ #define KMP_NEXT_WAIT 512U /* susequent number of spin-tests */
++#elif KMP_OS_ZOS
++/* TODO: tune for KMP_OS_ZOS */
++#define KMP_INIT_WAIT 1024U /* initial number of spin-tests   */
++#define KMP_NEXT_WAIT 512U /* susequent number of spin-tests */
+ #endif
+ 
+ #if KMP_ARCH_X86 || KMP_ARCH_X86_64
+diff --git a/runtime/src/kmp_barrier.h b/runtime/src/kmp_barrier.h
+index ae9b8d6..9b5cc10 100644
+--- a/runtime/src/kmp_barrier.h
++++ b/runtime/src/kmp_barrier.h
+@@ -15,6 +15,12 @@
+ 
+ #include "kmp.h"
+ #include "kmp_i18n.h"
++#include <stdlib.h> // Explicitly include stdlib.h
++
++#if KMP_OS_ZOS
++#undef KMP_HAVE_ALIGNED_ALLOC
++#define KMP_HAVE_ALIGNED_ALLOC 0
++#endif
+ 
+ #if KMP_HAVE_XMMINTRIN_H && KMP_HAVE__MM_MALLOC
+ #include <xmmintrin.h>
+diff --git a/runtime/src/kmp_config.h.cmake b/runtime/src/kmp_config.h.cmake
+index d64c9a4..f2320dd 100644
+--- a/runtime/src/kmp_config.h.cmake
++++ b/runtime/src/kmp_config.h.cmake
+@@ -142,7 +142,7 @@
+ 
+ // use shared memory with dynamic library (except Android, where shm_*
+ // functions don't exist).
+-#if KMP_OS_UNIX && KMP_DYNAMIC_LIB && !__ANDROID__
++#if KMP_OS_UNIX && KMP_DYNAMIC_LIB && !__ANDROID__ && !KMP_OS_ZOS
+ #define KMP_USE_SHM
+ #endif
+ #endif // KMP_CONFIG_H
+diff --git a/runtime/src/kmp_os.h b/runtime/src/kmp_os.h
+index e8ad2a6..c8a77a8 100644
+--- a/runtime/src/kmp_os.h
++++ b/runtime/src/kmp_os.h
+@@ -13,6 +13,7 @@
+ #ifndef KMP_OS_H
+ #define KMP_OS_H
+ 
++#include "kmp_platform.h"
+ #include "kmp_config.h"
+ #include <atomic>
+ #include <stdarg.h>
+@@ -76,7 +77,7 @@
+ #endif
+ 
+ #if (KMP_OS_LINUX || KMP_OS_WINDOWS || KMP_OS_FREEBSD || KMP_OS_NETBSD ||      \
+-     KMP_OS_DRAGONFLY || KMP_OS_AIX) &&                                        \
++     KMP_OS_DRAGONFLY || KMP_OS_AIX || KMP_OS_ZOS) &&                                        \
+     !KMP_OS_WASI && !KMP_OS_EMSCRIPTEN
+ #define KMP_AFFINITY_SUPPORTED 1
+ #if KMP_OS_WINDOWS && KMP_ARCH_X86_64
+@@ -163,6 +164,7 @@ typedef unsigned __int64 kmp_uintptr_t;
+ #endif /* KMP_OS_WINDOWS */
+ 
+ #if KMP_OS_UNIX
++#include <dlfcn.h> // Required for RTLD_DEFAULT and dlsym
+ #define KMP_END_OF_LINE "\n"
+ typedef char kmp_int8;
+ typedef unsigned char kmp_uint8;
+@@ -389,6 +391,9 @@ extern "C" {
+ #define KMP_ALIGN(bytes) __declspec(align(bytes))
+ #define KMP_THREAD_LOCAL __declspec(thread)
+ #define KMP_ALIAS /* Nothing */
++#elif KMP_OS_ZOS
++#define KMP_ALIGN(bytes) __attribute__((aligned(bytes)))
++#define KMP_THREAD_LOCAL
+ #else
+ #define KMP_ALIGN(bytes) __attribute__((aligned(bytes)))
+ #define KMP_THREAD_LOCAL __thread
+@@ -1298,6 +1303,9 @@ extern void *__kmp_lookup_symbol(const char *name, bool next = false);
+ #elif KMP_OS_WASI || KMP_OS_EMSCRIPTEN
+ #define KMP_DLSYM(name) nullptr
+ #define KMP_DLSYM_NEXT(name) nullptr
++#elif KMP_OS_ZOS
++#define KMP_DLSYM(name) dlsym(NULL, name)
++#define KMP_DLSYM_NEXT(name) dlsym(NULL, name)
+ #else
+ #define KMP_DLSYM(name) dlsym(RTLD_DEFAULT, name)
+ #define KMP_DLSYM_NEXT(name) dlsym(RTLD_NEXT, name)
+diff --git a/runtime/src/kmp_platform.h b/runtime/src/kmp_platform.h
+index 609b7c4..368f914 100644
+--- a/runtime/src/kmp_platform.h
++++ b/runtime/src/kmp_platform.h
+@@ -28,6 +28,7 @@
+ #define KMP_OS_WASI 0
+ #define KMP_OS_EMSCRIPTEN 0
+ #define KMP_OS_AIX 0
++#define KMP_OS_ZOS 0
+ #define KMP_OS_UNIX 0 /* disjunction of KMP_OS_LINUX, KMP_OS_DARWIN etc. */
+ 
+ #ifdef _WIN32
+@@ -95,6 +96,11 @@
+ #define KMP_OS_WASI 1
+ #endif
+ 
++#if (defined __MVS__)
++#undef KMP_OS_ZOS
++#define KMP_OS_ZOS 1
++#endif
++
+ #if (defined _AIX)
+ #undef KMP_OS_AIX
+ #define KMP_OS_AIX 1
+@@ -102,13 +108,13 @@
+ 
+ #if (1 != KMP_OS_LINUX + KMP_OS_DRAGONFLY + KMP_OS_FREEBSD + KMP_OS_NETBSD +   \
+               KMP_OS_OPENBSD + KMP_OS_DARWIN + KMP_OS_WINDOWS + KMP_OS_HAIKU + \
+-              KMP_OS_HURD + KMP_OS_SOLARIS + KMP_OS_WASI + KMP_OS_AIX)
++              KMP_OS_HURD + KMP_OS_SOLARIS + KMP_OS_WASI + KMP_OS_AIX + KMP_OS_ZOS)
+ #error Unknown OS
+ #endif
+ 
+ #if KMP_OS_LINUX || KMP_OS_DRAGONFLY || KMP_OS_FREEBSD || KMP_OS_NETBSD ||     \
+     KMP_OS_OPENBSD || KMP_OS_DARWIN || KMP_OS_HAIKU || KMP_OS_HURD ||          \
+-    KMP_OS_SOLARIS || KMP_OS_WASI || KMP_OS_AIX
++    KMP_OS_SOLARIS || KMP_OS_WASI || KMP_OS_AIX || KMP_OS_ZOS
+ #undef KMP_OS_UNIX
+ #define KMP_OS_UNIX 1
+ #endif
+diff --git a/runtime/src/kmp_runtime.cpp b/runtime/src/kmp_runtime.cpp
+index 6afea9b..975c789 100644
+--- a/runtime/src/kmp_runtime.cpp
++++ b/runtime/src/kmp_runtime.cpp
+@@ -8959,7 +8959,7 @@ __kmp_determine_reduction_method(
+ 
+ #if KMP_OS_LINUX || KMP_OS_DRAGONFLY || KMP_OS_FREEBSD || KMP_OS_NETBSD ||     \
+     KMP_OS_OPENBSD || KMP_OS_WINDOWS || KMP_OS_DARWIN || KMP_OS_HAIKU ||       \
+-    KMP_OS_HURD || KMP_OS_SOLARIS || KMP_OS_WASI || KMP_OS_AIX
++    KMP_OS_HURD || KMP_OS_SOLARIS || KMP_OS_WASI || KMP_OS_AIX || KMP_OS_ZOS
+ 
+     int teamsize_cutoff = 4;
+ 
+@@ -8991,7 +8991,7 @@ __kmp_determine_reduction_method(
+ 
+ #if KMP_OS_LINUX || KMP_OS_DRAGONFLY || KMP_OS_FREEBSD || KMP_OS_NETBSD ||     \
+     KMP_OS_OPENBSD || KMP_OS_WINDOWS || KMP_OS_HAIKU || KMP_OS_HURD ||         \
+-    KMP_OS_SOLARIS || KMP_OS_WASI || KMP_OS_AIX
++    KMP_OS_SOLARIS || KMP_OS_WASI || KMP_OS_AIX || KMP_OS_ZOS
+ 
+     // basic tuning
+ 
+diff --git a/runtime/src/kmp_wrapper_getpid.h b/runtime/src/kmp_wrapper_getpid.h
+index 9854d61..292c740 100644
+--- a/runtime/src/kmp_wrapper_getpid.h
++++ b/runtime/src/kmp_wrapper_getpid.h
+@@ -17,7 +17,7 @@
+ 
+ // On Unix-like systems (Linux* OS and OS X*) getpid() is declared in standard
+ // headers.
+-#if !KMP_OS_AIX && !KMP_OS_HAIKU
++#if !KMP_OS_AIX && !KMP_OS_HAIKU && !KMP_OS_ZOS
+ #include <sys/syscall.h>
+ #endif
+ #include <sys/types.h>
+@@ -33,7 +33,7 @@
+ #define __kmp_gettid() _lwp_self()
+ #elif KMP_OS_OPENBSD
+ #define __kmp_gettid() getthrid()
+-#elif KMP_OS_AIX || KMP_OS_SOLARIS
++#elif KMP_OS_AIX || KMP_OS_SOLARIS || KMP_OS_ZOS
+ #include <pthread.h>
+ #define __kmp_gettid() pthread_self()
+ #elif KMP_OS_HAIKU
+diff --git a/runtime/src/kmp_wrapper_malloc.h b/runtime/src/kmp_wrapper_malloc.h
+index 1f75e88..5b017e6 100644
+--- a/runtime/src/kmp_wrapper_malloc.h
++++ b/runtime/src/kmp_wrapper_malloc.h
+@@ -95,7 +95,7 @@
+ #if KMP_MSVC_COMPAT
+ #define alloca _alloca // Allow to use alloca() with no underscore.
+ #endif
+-#elif KMP_OS_DRAGONFLY || KMP_OS_FREEBSD || KMP_OS_NETBSD || KMP_OS_OPENBSD
++#elif KMP_OS_DRAGONFLY || KMP_OS_FREEBSD || KMP_OS_NETBSD || KMP_OS_OPENBSD || KMP_OS_AIX || KMP_OS_ZOS
+ // Declared in "stdlib.h".
+ #elif KMP_OS_UNIX
+ #include <alloca.h> // Linux* OS and OS X*: alloc() declared in "alloca".

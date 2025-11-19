@@ -1,0 +1,13 @@
+diff --git a/runtime/cmake/config-ix.cmake b/runtime/cmake/config-ix.cmake
+index 144c657..a2b26fd 100644
+--- a/runtime/cmake/config-ix.cmake
++++ b/runtime/cmake/config-ix.cmake
+@@ -158,6 +158,8 @@ endif()
+ # with either the Emscripten or wasi-threads flavor ends up using the pthreads
+ # interface in a WebAssembly-compiled libc; CMake does not yet know how to
+ # detect this.
++set(CMAKE_USE_PTHREADS_INIT TRUE)
++
+ if (NOT WASM)
+   find_package(Threads REQUIRED)
+   if(WIN32)
