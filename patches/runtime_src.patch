@@ -1,3 +1,16 @@
+diff --git a/runtime/src/CMakeLists.txt b/runtime/src/CMakeLists.txt
+index 698e185..7d65e9c 100644
+--- a/runtime/src/CMakeLists.txt
++++ b/runtime/src/CMakeLists.txt
+@@ -123,7 +123,7 @@ else()
+     libomp_append(LIBOMP_CXXFILES kmp_gsupport.cpp)
+     if(${CMAKE_SYSTEM_NAME} MATCHES "AIX")
+       libomp_append(LIBOMP_GNUASMFILES z_AIX_asm.S) # AIX assembly file
+-    else()
++    elseif(NOT ${CMAKE_SYSTEM_NAME} MATCHES "OS390")
+       libomp_append(LIBOMP_GNUASMFILES z_Linux_asm.S) # Unix assembly file
+     endif()
+   endif()
 diff --git a/runtime/src/kmp.h b/runtime/src/kmp.h
 index 197cf54..47ff58f 100644
 --- a/runtime/src/kmp.h
@@ -13,6 +26,26 @@ index 197cf54..47ff58f 100644
  #endif
  
  #if KMP_ARCH_X86 || KMP_ARCH_X86_64
+diff --git a/runtime/src/kmp_affinity.cpp b/runtime/src/kmp_affinity.cpp
+index 5038950..61ef895 100644
+--- a/runtime/src/kmp_affinity.cpp
++++ b/runtime/src/kmp_affinity.cpp
+@@ -1434,6 +1434,7 @@ void KMPAffinity::Mask::operator delete[](void *p) { __kmp_free(p); }
+ void *KMPAffinity::operator new(size_t n) { return __kmp_allocate(n); }
+ void KMPAffinity::operator delete(void *p) { __kmp_free(p); }
+ 
++#if KMP_AFFINITY_SUPPORTED
+ void KMPAffinity::pick_api() {
+   KMPAffinity *affinity_dispatch;
+   if (picked_api)
+@@ -1453,6 +1454,7 @@ void KMPAffinity::pick_api() {
+   __kmp_affinity_dispatch = affinity_dispatch;
+   picked_api = true;
+ }
++#endif // KMP_AFFINITY_SUPPORTED
+ 
+ void KMPAffinity::destroy_api() {
+   if (__kmp_affinity_dispatch != NULL) {
 diff --git a/runtime/src/kmp_barrier.h b/runtime/src/kmp_barrier.h
 index ae9b8d6..9b5cc10 100644
 --- a/runtime/src/kmp_barrier.h
@@ -43,8 +76,34 @@ index d64c9a4..f2320dd 100644
  #define KMP_USE_SHM
  #endif
  #endif // KMP_CONFIG_H
+diff --git a/runtime/src/kmp_ftn_entry.h b/runtime/src/kmp_ftn_entry.h
+index 59a9571..e3adb9e 100644
+--- a/runtime/src/kmp_ftn_entry.h
++++ b/runtime/src/kmp_ftn_entry.h
+@@ -706,7 +706,7 @@ int FTN_STDCALL KMP_EXPAND_NAME(FTN_GET_THREAD_NUM)(void) {
+ 
+ #if KMP_OS_DARWIN || KMP_OS_DRAGONFLY || KMP_OS_FREEBSD || KMP_OS_NETBSD ||    \
+     KMP_OS_OPENBSD || KMP_OS_HAIKU || KMP_OS_HURD || KMP_OS_SOLARIS ||         \
+-    KMP_OS_AIX
++    KMP_OS_AIX || KMP_OS_ZOS
+   gtid = __kmp_entry_gtid();
+ #elif KMP_OS_WINDOWS
+   if (!__kmp_init_parallel ||
+diff --git a/runtime/src/kmp_lock.h b/runtime/src/kmp_lock.h
+index 6202f3d..9a0168f 100644
+--- a/runtime/src/kmp_lock.h
++++ b/runtime/src/kmp_lock.h
+@@ -284,7 +284,7 @@ typedef union kmp_ticket_lock kmp_ticket_lock_t;
+ // Note the macro argument. It is important to make var properly initialized.
+ #define KMP_TICKET_LOCK_INITIALIZER(lock)                                      \
+   {                                                                            \
+-    { true, &(lock), NULL, 0U, 0U, 0, -1 }                                     \
++    { {true}, &(lock), NULL, {0U}, {0U}, {0}, {-1} }                                     \
+   }
+ 
+ extern int __kmp_acquire_ticket_lock(kmp_ticket_lock_t *lck, kmp_int32 gtid);
 diff --git a/runtime/src/kmp_os.h b/runtime/src/kmp_os.h
-index e8ad2a6..c8a77a8 100644
+index e8ad2a6..cbb82a2 100644
 --- a/runtime/src/kmp_os.h
 +++ b/runtime/src/kmp_os.h
 @@ -13,6 +13,7 @@
@@ -55,15 +114,6 @@ index e8ad2a6..c8a77a8 100644
  #include "kmp_config.h"
  #include <atomic>
  #include <stdarg.h>
-@@ -76,7 +77,7 @@
- #endif
- 
- #if (KMP_OS_LINUX || KMP_OS_WINDOWS || KMP_OS_FREEBSD || KMP_OS_NETBSD ||      \
--     KMP_OS_DRAGONFLY || KMP_OS_AIX) &&                                        \
-+     KMP_OS_DRAGONFLY || KMP_OS_AIX || KMP_OS_ZOS) &&                                        \
-     !KMP_OS_WASI && !KMP_OS_EMSCRIPTEN
- #define KMP_AFFINITY_SUPPORTED 1
- #if KMP_OS_WINDOWS && KMP_ARCH_X86_64
 @@ -163,6 +164,7 @@ typedef unsigned __int64 kmp_uintptr_t;
  #endif /* KMP_OS_WINDOWS */
  
@@ -154,6 +204,28 @@ index 6afea9b..975c789 100644
  
      // basic tuning
  
+diff --git a/runtime/src/kmp_safe_c_api.h b/runtime/src/kmp_safe_c_api.h
+index 79f4a7f..84500b9 100644
+--- a/runtime/src/kmp_safe_c_api.h
++++ b/runtime/src/kmp_safe_c_api.h
+@@ -13,7 +13,7 @@
+ #include <type_traits>
+ #include "kmp_platform.h"
+ #include <string.h>
+-
++#include <stdlib.h>
+ // Replacement for banned C API
+ 
+ // Not every unsafe call listed here is handled now, but keeping everything
+@@ -56,7 +56,7 @@ template <typename T> struct kmp_get_rmax_t<T, true> {
+ 
+ // For now, these macros use the existing API.
+ 
+-#if KMP_OS_NETBSD
++#if KMP_OS_NETBSD || KMP_OS_ZOS
+ #define KMP_ALLOCA __builtin_alloca
+ #else
+ #define KMP_ALLOCA alloca
 diff --git a/runtime/src/kmp_wrapper_getpid.h b/runtime/src/kmp_wrapper_getpid.h
 index 9854d61..292c740 100644
 --- a/runtime/src/kmp_wrapper_getpid.h
@@ -189,3 +261,117 @@ index 1f75e88..5b017e6 100644
  // Declared in "stdlib.h".
  #elif KMP_OS_UNIX
  #include <alloca.h> // Linux* OS and OS X*: alloc() declared in "alloca".
+diff --git a/runtime/src/ompt-general.cpp b/runtime/src/ompt-general.cpp
+index 1a778e4..4c9a24e 100644
+--- a/runtime/src/ompt-general.cpp
++++ b/runtime/src/ompt-general.cpp
+@@ -10,6 +10,10 @@
+ //
+ //===----------------------------------------------------------------------===//
+ 
++#if defined(__MVS__) && !defined(RTLD_NEXT)
++#define RTLD_NEXT ((void *)-1)
++#endif
++
+ #include "kmp_utils.h"
+ 
+ /*****************************************************************************
+diff --git a/runtime/src/ompt-specific.cpp b/runtime/src/ompt-specific.cpp
+index 94ae2e5..af853d3 100644
+--- a/runtime/src/ompt-specific.cpp
++++ b/runtime/src/ompt-specific.cpp
+@@ -27,6 +27,10 @@
+ #define THREAD_LOCAL __thread
+ #endif
+ 
++#if KMP_OS_ZOS
++#include <zos-tls.h>
++#endif
++
+ #define OMPT_WEAK_ATTRIBUTE KMP_WEAK_ATTRIBUTE_INTERNAL
+ 
+ //******************************************************************************
+@@ -495,7 +499,12 @@ void __ompt_team_assign_id(kmp_team_t *team, ompt_data_t ompt_pid) {
+ 
+ static uint64_t __ompt_get_unique_id_internal() {
+   static uint64_t thread = 1;
++#if KMP_OS_ZOS
++static __tlssim<uint64_t> id_tls(0);
++#define ID (*id_tls.access())
++#elif
+   static THREAD_LOCAL uint64_t ID = 0;
++#endif
+   if (ID == 0) {
+     uint64_t new_thread = KMP_TEST_THEN_INC64((kmp_int64 *)&thread);
+     ID = new_thread << (sizeof(uint64_t) * 8 - OMPT_THREAD_ID_BITS);
+diff --git a/runtime/src/z_Linux_util.cpp b/runtime/src/z_Linux_util.cpp
+index 368c0b6..3ffcc03 100644
+--- a/runtime/src/z_Linux_util.cpp
++++ b/runtime/src/z_Linux_util.cpp
+@@ -21,7 +21,7 @@
+ #include "kmp_wait_release.h"
+ #include "kmp_wrapper_getpid.h"
+ 
+-#if !KMP_OS_DRAGONFLY && !KMP_OS_FREEBSD && !KMP_OS_NETBSD && !KMP_OS_OPENBSD
++#if !KMP_OS_DRAGONFLY && !KMP_OS_FREEBSD && !KMP_OS_NETBSD && !KMP_OS_OPENBSD && !KMP_OS_ZOS
+ #include <alloca.h>
+ #endif
+ #include <math.h> // HUGE_VAL.
+@@ -32,7 +32,7 @@
+ #if KMP_OS_AIX
+ #include <sys/ldr.h>
+ #include <libperfstat.h>
+-#elif !KMP_OS_HAIKU
++#elif !KMP_OS_HAIKU && !KMP_OS_ZOS
+ #include <sys/syscall.h>
+ #endif
+ #include <sys/time.h>
+@@ -864,7 +864,7 @@ void __kmp_create_worker(int gtid, kmp_info_t *th, size_t stack_size) {
+ 
+   status =
+       pthread_create(&handle, &thread_attr, __kmp_launch_worker, (void *)th);
+-  if (status != 0 || !handle) { // ??? Why do we check handle??
++  if (status != 0 || !handle.__) { // ??? Why do we check handle??
+ #ifdef _POSIX_THREAD_ATTR_STACKSIZE
+     if (status == EINVAL) {
+       __kmp_fatal(KMP_MSG(CantSetWorkerStackSize, stack_size), KMP_ERR(status),
+@@ -1851,7 +1851,7 @@ int __kmp_read_system_info(struct kmp_sys_info *info) {
+   status = getrusage(RUSAGE_SELF, &r_usage);
+   KMP_CHECK_SYSFAIL_ERRNO("getrusage", status);
+ 
+-#if !KMP_OS_WASI
++#if !KMP_OS_WASI && !KMP_OS_ZOS
+   // The maximum resident set size utilized (in kilobytes)
+   info->maxrss = r_usage.ru_maxrss;
+   // The number of page faults serviced without any I/O
+@@ -1903,7 +1903,7 @@ static int __kmp_get_xproc(void) {
+   __kmp_type_convert(sysconf(_SC_NPROCESSORS_CONF), &(r));
+ 
+ #elif KMP_OS_DRAGONFLY || KMP_OS_FREEBSD || KMP_OS_NETBSD || KMP_OS_OPENBSD || \
+-    KMP_OS_HAIKU || KMP_OS_HURD || KMP_OS_SOLARIS || KMP_OS_WASI || KMP_OS_AIX
++    KMP_OS_HAIKU || KMP_OS_HURD || KMP_OS_SOLARIS || KMP_OS_WASI || KMP_OS_AIX || KMP_OS_ZOS
+ 
+   __kmp_type_convert(sysconf(_SC_NPROCESSORS_ONLN), &(r));
+ 
+@@ -2392,7 +2392,7 @@ int __kmp_is_address_mapped(void *addr) {
+   }
+   KMP_INTERNAL_FREE(loadQueryBuf);
+ 
+-#elif KMP_OS_HAIKU
++#elif KMP_OS_HAIKU || KMP_OS_ZOS //TODO
+ 
+   found = 1;
+ #else
+@@ -2512,6 +2512,12 @@ int __kmp_get_load_balance(int max) {
+   return running_threads;
+ }
+ 
++#elif KMP_OS_ZOS
++
++int __kmp_get_load_balance(int max) {
++  return -1;
++}
++
+ #else // Linux* OS
+ 
+ // The function returns number of running (not sleeping) threads, or -1 in case
