@@ -4,6 +4,15 @@
 
 LLVM's OpenMP runtime library
 
+### Status (z/OS)
+
+`libomp` builds on z/OS, but is <span style="color:red"><strong>not usable</strong></span>.
+
+- Any program compiled with `-fopenmp` aborts at runtime (stack overflow).
+- The runtime does not function at all at this stage.
+
+OpenMP support on z/OS is currently <span style="color:red"><strong>non-functional</strong></span>.
+
 # Installation and Usage
 
 Use the zopen package manager ([QuickStart Guide](https://zopen.community/#/Guides/QuickStart)) to install:
