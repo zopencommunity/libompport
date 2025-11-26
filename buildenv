@@ -13,10 +13,12 @@ export ZOPEN_BUILD_LINE="STABLE"
 export ZOPEN_STABLE_URL="https://github.com/llvm/llvm-project/releases/download/llvmorg-21.1.5/openmp-21.1.5.src.tar.xz"
 export ZOPEN_STABLE_DEPS="cmake make check_python"
 export ZOPEN_CONFIGURE="cmake"
-export ZOPEN_CONFIGURE_OPTS="-B ../build --install-prefix \$ZOPEN_INSTALL_DIR/ -DCMAKE_INSTALL_PREFIX=\$ZOPEN_INSTALL_DIR/ -DLIBOMP_ENABLE_SHARED=OFF" # -DCMAKE_C_COMPILER=clang64 -DCMAKE_CXX_COMPILER=clang++64"
+export ZOPEN_CONFIGURE_OPTS="-B ../build --install-prefix \$ZOPEN_INSTALL_DIR/ -DCMAKE_INSTALL_PREFIX=\$ZOPEN_INSTALL_DIR/ -DLIBOMP_ENABLE_SHARED=OFF -DCMAKE_ASM_COMPILER=/bin/as -DCMAKE_ASM_FLAGS="" -DLIBOMP_ARCHER_SUPPORT=FALSE -DLIBOMP_OMPT_SUPPORT=FALSE" # -DCMAKE_C_COMPILER=clang64 -DCMAKE_CXX_COMPILER=clang++64"
 export ZOPEN_COMP=OPENXL
 export ZOPEN_MAKE="make"
 export ZOPEN_MAKE_OPTS="-C ../build"
+export ZOPEN_CHECK_OPTS="-C ../build check-openmp"
+export ZOPEN_INSTALL_OPTS="-C ../build install"
 #export ZOPEN_CONFIGURE_MINIMAL="yes"
 #export ZOPEN_MAKE_MINIMAL="yes"
 
@@ -101,10 +103,16 @@ zopen_post_extract(){
 #  ## added to the metadata.json as installation caveats.
 #}
 #
-#zopen_init(){
-#  ## This function runs after code is downloaded and patched but before the code
-#  ## is built.
-#}
+zopen_init(){
+  set -x
+  if [ ! -d "venv" ]; then
+    python3 -m venv venv
+    ./venv/bin/pip install --upgrade pip
+    ./venv/bin/pip install lit
+  fi
+  . venv/bin/activate
+  set +x
+}
 #
 #zopen_post_buildenv(){
 #  ## This function runs after the 'buildenv' is processed.

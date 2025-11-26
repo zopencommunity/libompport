@@ -1,16 +1,16 @@
 diff --git a/runtime/src/CMakeLists.txt b/runtime/src/CMakeLists.txt
-index 698e185..7d65e9c 100644
+index 698e185..319a8f0 100644
 --- a/runtime/src/CMakeLists.txt
 +++ b/runtime/src/CMakeLists.txt
-@@ -123,7 +123,7 @@ else()
-     libomp_append(LIBOMP_CXXFILES kmp_gsupport.cpp)
+@@ -124,7 +124,7 @@ else()
      if(${CMAKE_SYSTEM_NAME} MATCHES "AIX")
        libomp_append(LIBOMP_GNUASMFILES z_AIX_asm.S) # AIX assembly file
--    else()
-+    elseif(NOT ${CMAKE_SYSTEM_NAME} MATCHES "OS390")
-       libomp_append(LIBOMP_GNUASMFILES z_Linux_asm.S) # Unix assembly file
+     else()
+-      libomp_append(LIBOMP_GNUASMFILES z_Linux_asm.S) # Unix assembly file
++        #libomp_append(LIBOMP_GNUASMFILES z_Linux_asm.S) # Unix assembly file
      endif()
    endif()
+   libomp_append(LIBOMP_CXXFILES thirdparty/ittnotify/ittnotify_static.cpp LIBOMP_USE_ITT_NOTIFY)
 diff --git a/runtime/src/kmp.h b/runtime/src/kmp.h
 index 197cf54..47ff58f 100644
 --- a/runtime/src/kmp.h
@@ -262,20 +262,20 @@ index 1f75e88..5b017e6 100644
  #elif KMP_OS_UNIX
  #include <alloca.h> // Linux* OS and OS X*: alloc() declared in "alloca".
 diff --git a/runtime/src/ompt-general.cpp b/runtime/src/ompt-general.cpp
-index 1a778e4..4c9a24e 100644
+index 1a778e4..fa6c5f1 100644
 --- a/runtime/src/ompt-general.cpp
 +++ b/runtime/src/ompt-general.cpp
-@@ -10,6 +10,10 @@
- //
- //===----------------------------------------------------------------------===//
+@@ -35,6 +35,10 @@
+  * macros
+  ****************************************************************************/
  
-+#if defined(__MVS__) && !defined(RTLD_NEXT)
++#if KMP_OS_ZOS && !defined(RTLD_NEXT)
 +#define RTLD_NEXT ((void *)-1)
 +#endif
 +
- #include "kmp_utils.h"
+ #define ompt_get_callback_success 1
+ #define ompt_get_callback_failure 0
  
- /*****************************************************************************
 diff --git a/runtime/src/ompt-specific.cpp b/runtime/src/ompt-specific.cpp
 index 94ae2e5..af853d3 100644
 --- a/runtime/src/ompt-specific.cpp
@@ -305,7 +305,7 @@ index 94ae2e5..af853d3 100644
      uint64_t new_thread = KMP_TEST_THEN_INC64((kmp_int64 *)&thread);
      ID = new_thread << (sizeof(uint64_t) * 8 - OMPT_THREAD_ID_BITS);
 diff --git a/runtime/src/z_Linux_util.cpp b/runtime/src/z_Linux_util.cpp
-index 368c0b6..3ffcc03 100644
+index 368c0b6..0c3f855 100644
 --- a/runtime/src/z_Linux_util.cpp
 +++ b/runtime/src/z_Linux_util.cpp
 @@ -21,7 +21,7 @@
@@ -375,3 +375,50 @@ index 368c0b6..3ffcc03 100644
  #else // Linux* OS
  
  // The function returns number of running (not sleeping) threads, or -1 in case
+@@ -3099,4 +3105,46 @@ bool __kmp_detect_tmp() {
+   }
+ }
+ 
++// For !KMP_COMPILER_MSVC, this function is provided in assembly form
++// by z_Linux_asm.S.
++int __kmp_invoke_microtask(microtask_t pkfn, int gtid, int tid, int argc,
++                           void *p_argv[]
++) {
++
++  switch (argc) {
++  case 0:
++    (*pkfn)(&gtid, &tid);
++    break;
++  case 1:
++    (*pkfn)(&gtid, &tid, p_argv[0]);
++    break;
++  case 2:
++    (*pkfn)(&gtid, &tid, p_argv[0], p_argv[1]);
++    break;
++  case 3:
++    (*pkfn)(&gtid, &tid, p_argv[0], p_argv[1], p_argv[2]);
++    break;
++  case 4:
++    (*pkfn)(&gtid, &tid, p_argv[0], p_argv[1], p_argv[2], p_argv[3]);
++    break;
++  case 5:
++    (*pkfn)(&gtid, &tid, p_argv[0], p_argv[1], p_argv[2], p_argv[3], p_argv[4]);
++    break;
++  default: {
++    // p_argv[6] and onwards must be passed on the stack since 8 registers are
++    // already used.
++    size_t len = (argc - 6) * sizeof(void *);
++    void *argbuf = __builtin_alloca(len);
++    memcpy(argbuf, &p_argv[6], len);
++  }
++    [[fallthrough]];
++  case 6:
++    (*pkfn)(&gtid, &tid, p_argv[0], p_argv[1], p_argv[2], p_argv[3], p_argv[4],
++            p_argv[5]);
++    break;
++  }
++
++  return 1;
++}
++
+ // end of file //
