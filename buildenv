@@ -1,5 +1,5 @@
 # bump: libomp-version /LIBOMP_VERSION="(.*)"/ https://github.com/llvm/llvm-project.git|semver:*
-LIBOMP_VERSION="21.1.6"
+LIBOMP_VERSION="21.1.7"
 
 ###
 ### Build control file for the libomp port
